@@ -4,7 +4,10 @@ var jwt = require('jsonwebtoken');
 var router = express.Router();
 
 var connection = mysql.createConnection({
-
+    host: '',
+    user: '',
+    password: '',
+    database: ''
 });
 
 router.get('/duplication', function (req, res, next) {
@@ -137,7 +140,7 @@ router.post('/gcm-receive', function (req, res, next) {
         if(error) {
             res.status(500).json({result: false, gcm_token: null});
         } else {
-            var params = [phoneList[0].phone1, phoneList[0].phone2, phoneList[0].phone3];
+            var params = [phoneList[0].guardian_phone1, phoneList[0].guardian_phone2, phoneList[0].guardian_phone3];
             connection.query(gcm_token_select_sql, params, function (err, gcm_token) {
                 if(err) {
                     res.status(500).json({result: false, gcm_token: null});
@@ -173,7 +176,7 @@ router.use(function (req, res, next) {
 });
 
 router.post('/profile', function (req, res, next) {
-    var select_user_sql = 'select name, age, gender, phone1, phone2, phone3 from users where myPhone=?';
+    var select_user_sql = 'select name, age, gender, phone1, phone2, phone3, guardian_phone1, guardian_phone2, guardian_phone3 from users where myPhone=?';
     connection.query(select_user_sql, req.body.myPhone, function (error, profile) {
         if (error) {
             res.status(500).json({result: false, message: 'server error', myProfile: null});
