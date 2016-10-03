@@ -4,10 +4,7 @@ var jwt = require('jsonwebtoken');
 var router = express.Router();
 
 var connection = mysql.createConnection({
-    host: '',
-    user: '',
-    password: '',
-    database: ''
+
 });
 
 router.get('/duplication', function (req, res, next) {
@@ -26,12 +23,39 @@ router.get('/duplication', function (req, res, next) {
     });
 });
 
+router.post('/check-user-code', function (req, res, next) {
+    var select_sql = 'select myPhone from users where myPhone=? and user_code=?';
+    var params = [req.query.myPhone, req.query.user_code];
+    connection.query(select_sql, params, function (error, user) {
+        if (error) {
+            res.status(500).json({result: false});
+        } else {
+            if (!user[0]) {
+                res.status(200).json({result: false});
+            } else if (user[0]) {
+                res.status(200).json({result: true});
+            }
+        }
+    });
+});
+
+function randomUserCode(){
+    var ALPHA = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','0','1','2','3','4','5','6','7','8','9'];
+    var code='';
+    for(var i=0; i<8; i++){
+        var randTnum = Math.floor(Math.random()*ALPHA.length);
+        code += ALPHA[randTnum];
+    }
+    return code;
+}
+
 router.post('/register', function (req, res, next) {
     var select_sql = 'select myPhone from users where myPhone=?';
-    var insert_sql = 'insert into users(myPhone, pw, gcm_token, name, age, gender, phone1, phone2, phone3) values(?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    var insert_sql = 'insert into users(myPhone, pw, gcm_token, name, age, gender, user_code) values(?, ?, ?, ?, ?, ?, ?)';
     var insert_location_sql = 'insert into location(myPhone) values(?)';
     var insert_gcm_token_sql = 'insert into gcm_token(phone) values(?)';
-    var params = [req.body.myPhone, req.body.pw, req.body.name, req.body.age, req.body.gender, req.body.phone1, req.body.phone2, req.body.phone3];
+    var userCode = randomUserCode();
+    var params = [req.body.myPhone, req.body.pw, req.body.name, req.body.age, req.body.gender, userCode];
 
     connection.query(select_sql, req.body.myPhone, function (err, duplication) {
         if (duplication.length > 0) {
@@ -92,11 +116,6 @@ router.post('/login', function (req, res, next) {
     });
 });
 
-/**
- * 자신의 gcm_token을 저장
- * req body - gcm_token, phone
- * res body - result
- */
 router.post('/gcm-token', function (req ,res, next) {
     var update_sql = 'update gcm_tb set gcm_token=? where phone=?';
     var update_params = [req.body.gcm_token, req.body.phone];
@@ -110,13 +129,8 @@ router.post('/gcm-token', function (req ,res, next) {
     });
 });
 
-/**
- * gcm_token ID를 가져옴
- * req body - myPhone
- * res body - result, Gcm_token
- */
 router.post('/gcm-receive', function (req, res, next) {
-    var family_select_sql = 'select phone1, phone2, phone3 from users where myPhone=?';
+    var family_select_sql = 'select guardian_phone1, guardian_phone2, guardian_phone3 from users where myPhone=?';
     var gcm_token_select_sql = 'select phone, gcm_token from gcm_tb where (phone=? or phone=? or phone=?)';
 
     connection.query(family_select_sql, req.body.myPhone, function (error, phoneList) {
@@ -159,7 +173,7 @@ router.use(function (req, res, next) {
 });
 
 router.post('/profile', function (req, res, next) {
-    var select_user_sql = 'select myPhone, name, age, gender, phone1, phone2, phone3 from users where myPhone=?';
+    var select_user_sql = 'select name, age, gender, phone1, phone2, phone3 from users where myPhone=?';
     connection.query(select_user_sql, req.body.myPhone, function (error, profile) {
         if (error) {
             res.status(500).json({result: false, message: 'server error', myProfile: null});
@@ -174,11 +188,61 @@ router.post('/profile', function (req, res, next) {
                     gender: profile[0].gender,
                     phone1: profile[0].phone1,
                     phone2: profile[0].phone2,
-                    phone3: profile[0].phone3
+                    phone3: profile[0].phone3,
+                    guardian_phone1: profile[0].guardian_phone1,
+                    guardian_phone2: profile[0].guardian_phone2,
+                    guardian_phone3: profile[0].guardian_phone3
                 }
             });
         }
     });
+});
+
+router.post('/pw-check', function (req, res, next) {
+    var select_sql = 'select myPhone from users where myPhone=? AND pw=?';
+    var params = [req.body.myPhone, req.body.pw];
+    connection.query(select_sql, params, function (error, check) {
+        if(error) {
+            res.status(500).json({result: false});
+        } else {
+            res.status(200).json({result: true});
+        }
+    })
+});
+
+router.post('/profile-update', function (req, res, next) {
+    //'insert into users(myPhone, pw, gcm_token, name, age, gender, phone1, phone2, phone3) values(?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    if(req.body.pw != null) {
+        var params = [req.body.myPhone, req.body.pw];
+        var pw_update_sql = 'update users set pw=? where myPhone=?';
+        connection.query(pw_update_sql, params, function (error, myPhone) {
+            if(error) {
+                res.status(500).json({result: false});
+            } else {
+                res.status(200).json({result: true});
+            }
+        });
+    } else if(req.body.name != null) {
+        var update_sql = 'update users set name=?, age=?, gender=? where myPhone=?';
+        var params = [req.body.name, req.body.age, req.body.gender, req.body.myPhone];
+        connection.query(update_sql, params, function (error, profile) {
+            if(error) {
+                res.status(500).json({result: false});
+            } else {
+                res.status(200).json({result: true});
+            }
+        });
+    } else {
+        var update_sql = 'update users set phone1=?, phone2=?, phone3=?, guardian_phone1=?, guardian_phone2=?, guardian_phone3=? where myPhone=?';
+        var params = [req.body.phone1, req.body.phone2, req.body.phone3, req.body.guardian_phone1, req.body.guardian_phone2, req.body.guardian_phone3];
+        connection.query(update_sql, params, function (error, profile) {
+            if(error) {
+                res.status(500).json({result: false});
+            } else {
+                res.status(200).json({result: true});
+            }
+        });
+    }
 });
 
 router.post('/location', function (req, res, next) {
@@ -189,22 +253,6 @@ router.post('/location', function (req, res, next) {
             res.status(403).json({result: false, message: 'location update fail'});
         } else {
             res.status(200).json({result: true, message: 'location update success'});
-        }
-    });
-});
-
-router.post('/address', function (req, res, next) {
-    var select_sql = 'select router from my_router where phone=?';
-
-    connection.query(select_sql, req.body.phone, function (error, result) {
-        if(error) {
-            res.status(404).json([{router: null}]);
-        } else {
-            if(!result) {
-                res.status(200).json([{router: null}]);
-            } else if(result) {
-                res.status(200).json(result);
-            }
         }
     });
 });
