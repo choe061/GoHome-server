@@ -54,9 +54,9 @@ function randomUserCode(){
 
 router.post('/register', function (req, res, next) {
     var select_sql = 'select myPhone from users where myPhone=?';
-    var insert_sql = 'insert into users(myPhone, pw, gcm_token, name, age, gender, user_code) values(?, ?, ?, ?, ?, ?, ?)';
-    var insert_location_sql = 'insert into location(myPhone) values(?)';
-    var insert_gcm_token_sql = 'insert into gcm_token(phone) values(?)';
+    var insert_sql = 'insert into users(myPhone, pw, name, age, gender, user_code) values(?, ?, ?, ?, ?, ?)';
+    var insert_location_sql = 'insert into location(phone) values(?)';
+    var insert_gcm_token_sql = 'insert into gcm_tb(phone) values(?)';
     var userCode = randomUserCode();
     var params = [req.body.myPhone, req.body.pw, req.body.name, req.body.age, req.body.gender, userCode];
 
@@ -68,11 +68,11 @@ router.post('/register', function (req, res, next) {
                 if (error) {
                     res.status(500).json({result: false, message: 'server error'});
                 } else {
-                    connection.query(insert_location_sql, req.body.myPhone, function (error, myLocation) {
+                    connection.query(insert_location_sql, [req.body.myPhone], function (error, myLocation) {
                         if(error) {
                             res.status(500).json({result: false, message: 'myLocation register error'});
                         } else {
-                            connection.query(insert_gcm_token_sql, req.body.myPhone, function (error, gcm_id) {
+                            connection.query(insert_gcm_token_sql, [req.body.myPhone], function (error, gcm_id) {
                                 if(error) {
                                     res.status(500).json({result: false, message: 'gcm id create fail'});
                                 } else {
@@ -176,7 +176,7 @@ router.use(function (req, res, next) {
 });
 
 router.post('/profile', function (req, res, next) {
-    var select_user_sql = 'select name, age, gender, phone1, phone2, phone3, guardian_phone1, guardian_phone2, guardian_phone3 from users where myPhone=?';
+    var select_user_sql = 'select myPhone, name, age, gender, phone1, phone2, phone3, guardian_phone1, guardian_phone2, guardian_phone3, user_code from users where myPhone=?';
     connection.query(select_user_sql, req.body.myPhone, function (error, profile) {
         if (error) {
             res.status(500).json({result: false, message: 'server error', myProfile: null});
@@ -194,7 +194,8 @@ router.post('/profile', function (req, res, next) {
                     phone3: profile[0].phone3,
                     guardian_phone1: profile[0].guardian_phone1,
                     guardian_phone2: profile[0].guardian_phone2,
-                    guardian_phone3: profile[0].guardian_phone3
+                    guardian_phone3: profile[0].guardian_phone3,
+                    user_code: profile[0].user_code
                 }
             });
         }
@@ -214,11 +215,10 @@ router.post('/pw-check', function (req, res, next) {
 });
 
 router.post('/profile-update', function (req, res, next) {
-    //'insert into users(myPhone, pw, gcm_token, name, age, gender, phone1, phone2, phone3) values(?, ?, ?, ?, ?, ?, ?, ?, ?)';
     if(req.body.pw != null) {
-        var params = [req.body.myPhone, req.body.pw];
         var pw_update_sql = 'update users set pw=? where myPhone=?';
-        connection.query(pw_update_sql, params, function (error, myPhone) {
+        var params = [req.body.myPhone, req.body.pw];
+        connection.query(pw_update_sql, params, function (error, profile) {
             if(error) {
                 res.status(500).json({result: false});
             } else {
@@ -235,9 +235,19 @@ router.post('/profile-update', function (req, res, next) {
                 res.status(200).json({result: true});
             }
         });
+    } else if(req.body.phone1 != null) {
+        var update_sql = 'update users set phone1=?, phone2=?, phone3=? where myPhone=?';
+        var params = [req.body.phone1, req.body.phone2, req.body.phone3, req.body.myPhone];
+        connection.query(update_sql, params, function (error, profile) {
+            if(error) {
+                res.status(500).json({result: false});
+            } else {
+                res.status(200).json({result: true});
+            }
+        });
     } else {
-        var update_sql = 'update users set phone1=?, phone2=?, phone3=?, guardian_phone1=?, guardian_phone2=?, guardian_phone3=? where myPhone=?';
-        var params = [req.body.phone1, req.body.phone2, req.body.phone3, req.body.guardian_phone1, req.body.guardian_phone2, req.body.guardian_phone3];
+        var update_sql = 'update users set guardian_phone1=?, guardian_phone2=?, guardian_phone3=? where myPhone=?';
+        var params = [req.body.guardian_phone1, req.body.guardian_phone2, req.body.guardian_phone3, req.body.myPhone];
         connection.query(update_sql, params, function (error, profile) {
             if(error) {
                 res.status(500).json({result: false});
