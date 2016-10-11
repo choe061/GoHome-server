@@ -4,10 +4,7 @@ var jwt = require('jsonwebtoken');
 var router = express.Router();
 
 var connection = mysql.createConnection({
-    host: '',
-    user: '',
-    password: '',
-    database: ''
+
 });
 
 router.get('/duplication', function (req, res, next) {
@@ -176,7 +173,7 @@ router.use(function (req, res, next) {
 });
 
 router.post('/profile', function (req, res, next) {
-    var select_user_sql = 'select myPhone, name, age, gender, phone1, phone2, phone3, guardian_phone1, guardian_phone2, guardian_phone3, user_code from users where myPhone=?';
+    var select_user_sql = 'select myPhone, name, age, gender, guardian_phone1, guardian_phone2, guardian_phone3, user_code from users where myPhone=?';
     connection.query(select_user_sql, req.body.myPhone, function (error, profile) {
         if (error) {
             res.status(500).json({result: false, message: 'server error', myProfile: null});
@@ -189,9 +186,6 @@ router.post('/profile', function (req, res, next) {
                     name: profile[0].name,
                     age: profile[0].age,
                     gender: profile[0].gender,
-                    phone1: profile[0].phone1,
-                    phone2: profile[0].phone2,
-                    phone3: profile[0].phone3,
                     guardian_phone1: profile[0].guardian_phone1,
                     guardian_phone2: profile[0].guardian_phone2,
                     guardian_phone3: profile[0].guardian_phone3,
@@ -202,30 +196,29 @@ router.post('/profile', function (req, res, next) {
     });
 });
 
-router.post('/pw-check', function (req, res, next) {
-    var select_sql = 'select myPhone from users where myPhone=? AND pw=?';
-    var params = [req.body.myPhone, req.body.pw];
-    connection.query(select_sql, params, function (error, check) {
-        if(error) {
-            res.status(500).json({result: false});
-        } else {
-            res.status(200).json({result: true});
-        }
-    })
-});
-
 router.post('/profile-update', function (req, res, next) {
-    if(req.body.pw != null) {
-        var pw_update_sql = 'update users set pw=? where myPhone=?';
-        var params = [req.body.myPhone, req.body.pw];
-        connection.query(pw_update_sql, params, function (error, profile) {
+    if(req.body.now_pw != null && req.body.new_pw != null) {
+        var select_sql = 'select myPhone from users where myPhone=? AND pw=?';
+        connection.query(select_sql, [req.body.myPhone, req.body.now_pw], function (error, profile) {
             if(error) {
                 res.status(500).json({result: false});
             } else {
-                res.status(200).json({result: true});
+                if(!profile[0]) {
+                    res.status(200).json({result: false});
+                } else {
+                    var pw_update_sql = 'update users set pw=? where myPhone=?';
+                    var params = [req.body.new_pw, req.body.myPhone];
+                    connection.query(pw_update_sql, params, function (error, profile) {
+                        if (error) {
+                            res.status(500).json({result: false});
+                        } else {
+                            res.status(200).json({result: true});
+                        }
+                    });
+                }
             }
         });
-    } else if(req.body.name != null) {
+    } else if(req.body.name != null && req.body.age != null && req.body.gender !=null) {
         var update_sql = 'update users set name=?, age=?, gender=? where myPhone=?';
         var params = [req.body.name, req.body.age, req.body.gender, req.body.myPhone];
         connection.query(update_sql, params, function (error, profile) {
@@ -235,9 +228,9 @@ router.post('/profile-update', function (req, res, next) {
                 res.status(200).json({result: true});
             }
         });
-    } else if(req.body.phone1 != null) {
-        var update_sql = 'update users set phone1=?, phone2=?, phone3=? where myPhone=?';
-        var params = [req.body.phone1, req.body.phone2, req.body.phone3, req.body.myPhone];
+    } else if(req.body.phone != null) {
+        var update_sql = 'insert into ward_users(myPhone, phone) values(?, ?)';
+        var params = [req.body.myPhone, req.body.phone];
         connection.query(update_sql, params, function (error, profile) {
             if(error) {
                 res.status(500).json({result: false});
@@ -245,7 +238,7 @@ router.post('/profile-update', function (req, res, next) {
                 res.status(200).json({result: true});
             }
         });
-    } else {
+    } else if(req.body.guardian_phone1 != null) {
         var update_sql = 'update users set guardian_phone1=?, guardian_phone2=?, guardian_phone3=? where myPhone=?';
         var params = [req.body.guardian_phone1, req.body.guardian_phone2, req.body.guardian_phone3, req.body.myPhone];
         connection.query(update_sql, params, function (error, profile) {
@@ -256,6 +249,18 @@ router.post('/profile-update', function (req, res, next) {
             }
         });
     }
+});
+
+router.post('/ward-delete', function (req, res, next) {
+    var delete_sql = 'delete from ward_users where myPhone=? AND phone=?';
+    var params = [req.body.myPhone, req.body.phone];
+    connection.query(delete_sql, params, function (error, re) {
+        if(error) {
+            res.status(500).json({result: false});
+        } else {
+            res.status(200).json({result: true});
+        }
+    });
 });
 
 router.post('/location', function (req, res, next) {
@@ -271,21 +276,37 @@ router.post('/location', function (req, res, next) {
 });
 
 router.post('/receive', function(req, res, next) {
-    var family_select_sql = 'select phone1, phone2, phone3 from users where myPhone=?';
-    var select_sql = 'select B.name, A.nowLat, A.nowLng, A.mod_date from location A, users B where (A.phone=? or A.phone=? or A.phone=?) AND A.phone=B.myPhone';
+    var family_select_sql = 'select phone from ward_users where myPhone=?';
+    var list = '';
 
-    connection.query(family_select_sql, req.body.myPhone, function (error, phoneList) {
+    connection.query(family_select_sql, [req.body.myPhone], function (error, phoneList) {
        if(error) {
            res.status(500).json({result: false, message: 'server connect fail(phone list receive fail)', locations: null});
        } else {
-           var params = [phoneList[0].phone1, phoneList[0].phone2, phoneList[0].phone3];
+           var len = phoneList.length;
+           var params = [];
+           for(var i=0; i<len; i++) {
+               params.push(phoneList[i].phone);
+           }
+           if(len == 1) {
+               list = '(A.phone=?)';
+           } else if(len == 2) {
+               list = '(A.phone=? or A.phone=?)';
+           } else if(len == 3) {
+               list = '(A.phone=? or A.phone=? or A.phone=?)';
+           }
+           var select_sql = 'select B.name, A.nowLat, A.nowLng, A.mod_date from location A, users B where '+list+' AND A.phone=B.myPhone';
            connection.query(select_sql, params, function (error, locations) {
-               if(error) {
-                   res.status(500).json({result: false, message: 'server connect fail(locations)', locations: null});
+               if (error) {
+                   res.status(500).json({
+                       result: false, message: 'server connect fail(locations)', locations: null
+                   });
                } else {
-                   if(!locations[0]) {
-                       res.status(200).json({result: false, message: 'location list receive fail', locations: null});
-                   } else if(locations[0]) {
+                   if (!locations[0] && !locations[1] && !locations[2]) {
+                       res.status(200).json({
+                           result: false, message: 'location list receive fail', locations: null
+                       });
+                   } else if (locations[0] || locations[1] || locations[2]) {
                        res.status(200).json({
                            result: true,
                            message: 'location receive success',
@@ -299,6 +320,47 @@ router.post('/receive', function(req, res, next) {
                }
            });
        }
+    });
+});
+
+router.post('/withdraw', function (req, res, next) {
+    var pw_check_sql = 'select myPhone from users where myPhone=? AND pw=?';
+    var pw_check_params = [req.body.myPhone, req.body.pw];
+    var users_tb_del_sql = 'delete from users where myPhone=?';
+    var ward_users_tb_del_sql = 'delete from ward_users where myPhone=? or phone=?';
+    var gcm_tb_del_sql = 'delete from gcm_tb where phone=?';
+    var location_tb_del_sql = 'delete from location where phone=?';
+
+    connection.query(pw_check_sql, pw_check_params, function (error, user) {
+        if(error) {
+            res.status(500).json({result: false});
+        } else {
+            connection.query(users_tb_del_sql, [user[0].myPhone], function (error, users) {
+                if(error) {
+                    res.status(500).json({result: false});
+                } else {
+                    connection.query(ward_users_tb_del_sql, [user[0].myPhone, user[0].myPhone], function (error, ward_users) {
+                        if(error) {
+                            res.status(500).json({result: false});
+                        } else {
+                            connection.query(gcm_tb_del_sql, [user[0].myPhone], function (error, gcm_tb) {
+                                if(error) {
+                                    res.status(500).json({result: false});
+                                } else {
+                                    connection.query(location_tb_del_sql, [user[0].myPhone], function (error, location) {
+                                        if(error) {
+                                            res.status(500).json({result: false});
+                                        } else {
+                                            res.status(200).json({result: true});
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
     });
 });
 
