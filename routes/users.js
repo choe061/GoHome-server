@@ -1,10 +1,12 @@
 var express = require('express');
 var mysql = require('mysql');
 var jwt = require('jsonwebtoken');
+var nodemailer = require('nodemailer');
+var credentials = require('./credentials.js');
 var router = express.Router();
 
 var connection = mysql.createConnection({
-
+    
 });
 
 router.get('/duplication', function (req, res, next) {
@@ -23,22 +25,6 @@ router.get('/duplication', function (req, res, next) {
     });
 });
 
-router.post('/check-user-code', function (req, res, next) {
-    var select_sql = 'select myPhone from users where myPhone=? and user_code=?';
-    var params = [req.query.myPhone, req.query.user_code];
-    connection.query(select_sql, params, function (error, user) {
-        if (error) {
-            res.status(500).json({result: false});
-        } else {
-            if (!user[0]) {
-                res.status(200).json({result: false});
-            } else if (user[0]) {
-                res.status(200).json({result: true});
-            }
-        }
-    });
-});
-
 function randomUserCode(){
     var ALPHA = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','0','1','2','3','4','5','6','7','8','9'];
     var code='';
@@ -49,13 +35,59 @@ function randomUserCode(){
     return code;
 }
 
+var smtpTransport = nodemailer.createTransport('SMTP' ,{
+    service: 'Gmail',
+    auth: {
+        user: credentials.gmail.user,
+        pass: credentials.gmail.pass
+    }
+});
+
+router.get('/send-mail', function (req, res, next) {
+    var phone = req.query.myPhone;
+    var select_sql = 'select email from users where myPhone=?';
+    var update_sql = 'update users set pw=? where myPhone=?';
+    connection.query(select_sql, phone, function (error, user) {
+        if(error) {
+            res.status(500).json({result: false});
+        } else {
+            if(!user[0]) {
+                res.status(200).json({result: false});
+            } else if(user[0]) {
+                var new_pw = randomUserCode();
+                var params = [new_pw, phone];
+                connection.query(update_sql, params, function (err, result) {
+                    if(err) {
+                        res.status(500).json({result: false});
+                    } else {
+                        var mailOptions = {
+                            from: ' <@gmail.com>',
+                            to: user[0].email,
+                            subject: '<집으로> 비밀번호 변경',
+                            text: '변경된 비밀번호는 \"'+new_pw+'\"입니다.'
+                        };
+                        smtpTransport.sendMail(mailOptions, function (error, res) {
+                            if(error) {
+                                res.status(200).json({result: false});
+                            } else {
+                                res.status(200).json({result: true});
+                            }
+                            smtpTransport.close();
+                        });
+                    }
+                });
+            }
+        }
+    });
+});
+
 router.post('/register', function (req, res, next) {
     var select_sql = 'select myPhone from users where myPhone=?';
-    var insert_sql = 'insert into users(myPhone, pw, name, age, gender, user_code) values(?, ?, ?, ?, ?, ?)';
+    var insert_sql = 'insert into users(myPhone, pw, email, name, age, gender, user_code) values(?, ?, ?, ?, ?, ?, ?)';
     var insert_location_sql = 'insert into location(phone) values(?)';
     var insert_gcm_token_sql = 'insert into gcm_tb(phone) values(?)';
     var userCode = randomUserCode();
-    var params = [req.body.myPhone, req.body.pw, req.body.name, req.body.age, req.body.gender, userCode];
+    var params = [req.body.myPhone, req.body.pw, req.body.email, req.body.name, req.body.age, req.body.gender, userCode];
 
     connection.query(select_sql, req.body.myPhone, function (err, duplication) {
         if (duplication.length > 0) {
@@ -172,8 +204,25 @@ router.use(function (req, res, next) {
     }
 });
 
+router.post('/check-user-code', function (req, res, next) {
+    var select_sql = 'select myPhone from users where myPhone=? AND user_code=?';
+    var params = [req.body.myPhone, req.body.user_code];
+    connection.query(select_sql, params, function (error, user) {
+        if (error) {
+            res.status(500).json({result: false});
+        } else {
+            console.log(user[0]);
+            if (!user[0]) {
+                res.status(200).json({result: false});
+            } else if (user[0]) {
+                res.status(200).json({result: true});
+            }
+        }
+    });
+});
+
 router.post('/profile', function (req, res, next) {
-    var select_user_sql = 'select myPhone, name, age, gender, guardian_phone1, guardian_phone2, guardian_phone3, user_code from users where myPhone=?';
+    var select_user_sql = 'select myPhone, email, name, age, gender, guardian_phone1, guardian_phone2, guardian_phone3, user_code from users where myPhone=?';
     connection.query(select_user_sql, req.body.myPhone, function (error, profile) {
         if (error) {
             res.status(500).json({result: false, message: 'server error', myProfile: null});
@@ -184,6 +233,7 @@ router.post('/profile', function (req, res, next) {
                 myProfile: {
                     myPhone: profile[0].myPhone,
                     name: profile[0].name,
+                    email: profile[0].email,
                     age: profile[0].age,
                     gender: profile[0].gender,
                     guardian_phone1: profile[0].guardian_phone1,
@@ -192,6 +242,25 @@ router.post('/profile', function (req, res, next) {
                     user_code: profile[0].user_code
                 }
             });
+        }
+    });
+});
+
+router.post('/ward-list', function (req, res, next) {
+    var select_user_sql = 'select phone from ward_users where myPhone=?';
+
+    connection.query(select_user_sql, [req.body.myPhone], function (error, users) {
+        if(error) {
+            res.status(500).json({result:false, users:null});
+        } else {
+            res.status(200).json({
+                result:true,
+                users: [
+                    users[0],
+                    users[1],
+                    users[2]
+                ]
+            })
         }
     });
 });
@@ -218,9 +287,9 @@ router.post('/profile-update', function (req, res, next) {
                 }
             }
         });
-    } else if(req.body.name != null && req.body.age != null && req.body.gender !=null) {
-        var update_sql = 'update users set name=?, age=?, gender=? where myPhone=?';
-        var params = [req.body.name, req.body.age, req.body.gender, req.body.myPhone];
+    } else if(req.body.email != null && req.body.name != null && req.body.age != null && req.body.gender !=null) {
+        var update_sql = 'update users set email=?, name=?, age=?, gender=? where myPhone=?';
+        var params = [req.body.email, req.body.name, req.body.age, req.body.gender, req.body.myPhone];
         connection.query(update_sql, params, function (error, profile) {
             if(error) {
                 res.status(500).json({result: false});
@@ -228,14 +297,33 @@ router.post('/profile-update', function (req, res, next) {
                 res.status(200).json({result: true});
             }
         });
-    } else if(req.body.phone != null) {
+    } else if(req.body.phone != null && req.body.user_code) {
+        var select_sql = 'select myPhone from users where myPhone=? AND user_code=?';
+        var select_check_sql = 'select * from ward_users where myPhone=? AND phone=?';
         var update_sql = 'insert into ward_users(myPhone, phone) values(?, ?)';
-        var params = [req.body.myPhone, req.body.phone];
-        connection.query(update_sql, params, function (error, profile) {
+        var params1 = [req.body.myPhone, req.body.user_code];
+        var params2 = [req.body.myPhone, req.body.phone];
+        connection.query(select_sql, params1, function (error, results) {
             if(error) {
                 res.status(500).json({result: false});
             } else {
-                res.status(200).json({result: true});
+                connection.query(select_check_sql, params2, function (error, user) {
+                    if(error) {
+                        res.status(500).json({result: false});
+                    } else {
+                        if(user[0]) {
+                            res.status(200).json({result: false});
+                        } else if(!user[0]) {
+                            connection.query(update_sql, params2, function (error, results) {
+                                if(error) {
+                                    res.status(500).json({result: false});
+                                } else {
+                                    res.status(200).json({result: true});
+                                }
+                            });
+                        }
+                    }
+                });
             }
         });
     } else if(req.body.guardian_phone1 != null) {
