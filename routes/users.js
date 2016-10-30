@@ -2,11 +2,12 @@ var express = require('express');
 var mysql = require('mysql');
 var jwt = require('jsonwebtoken');
 var nodemailer = require('nodemailer');
+var generator = require('xoauth2');
 var credentials = require('./credentials.js');
 var router = express.Router();
 
 var connection = mysql.createConnection({
-    
+
 });
 
 router.get('/duplication', function (req, res, next) {
@@ -35,11 +36,21 @@ function randomUserCode(){
     return code;
 }
 
-var smtpTransport = nodemailer.createTransport('SMTP' ,{
-    service: 'Gmail',
+var xoauth2gen = generator.createXOAuth2Generator({
+    user: credentials.gmail.user,
+    clientId: credentials.gmail_api.clientId,
+    clientSecret: credentials.gmail_api.clientSecret,
+    refreshToken: credentials.gmail_api.refreshToken,
+    accessToken: credentials.gmail_api.accessToken
+});
+
+var smtpTransport = nodemailer.createTransport({
+    service: 'gmail',
+    secureConnection: true,
+    port: 465,
+    transportMethod: "SMTP",
     auth: {
-        user: credentials.gmail.user,
-        pass: credentials.gmail.pass
+        xoauth2: xoauth2gen
     }
 });
 
@@ -64,10 +75,10 @@ router.get('/send-mail', function (req, res, next) {
                             from: ' <@gmail.com>',
                             to: user[0].email,
                             subject: '<집으로> 비밀번호 변경',
-                            text: '변경된 비밀번호는 \"'+new_pw+'\"입니다.'
+                            text: '변경된 비밀번호는 \"'+new_pw+'\"입니다.\n본인이 아닌 경우 메일을 회신해주세요.'
                         };
-                        smtpTransport.sendMail(mailOptions, function (error, res) {
-                            if(error) {
+                        smtpTransport.sendMail(mailOptions, function (e, response) {
+                            if(e) {
                                 res.status(200).json({result: false});
                             } else {
                                 res.status(200).json({result: true});

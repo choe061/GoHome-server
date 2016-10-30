@@ -6,7 +6,7 @@ module.exports = {
         user: '',
         pass: ''
     },
-    gmail_auth: {
+    gmail_api: {
         clientId: '',
         clientSecret: '',
         refreshToken: '',
