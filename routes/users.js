@@ -1,15 +1,18 @@
 var express = require('express');
 var mysql = require('mysql');
 var jwt = require('jsonwebtoken');
-var nodemailer = require('nodemailer');
-var generator = require('xoauth2');
-var credentials = require('./credentials.js');
+var credentials = require('../lib/credentials.js');
+var auth = require('../lib/auth.js');
 var router = express.Router();
 
 var connection = mysql.createConnection({
-
+    host: '',
+    user: '',
+    password: '',
+    database: ''
 });
 
+//phone number 중복확인
 router.get('/duplication', function (req, res, next) {
     var select_sql = 'select myPhone from users where myPhone=?';
 
@@ -26,78 +29,13 @@ router.get('/duplication', function (req, res, next) {
     });
 });
 
-function randomUserCode(){
-    var ALPHA = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','0','1','2','3','4','5','6','7','8','9'];
-    var code='';
-    for(var i=0; i<8; i++){
-        var randTnum = Math.floor(Math.random()*ALPHA.length);
-        code += ALPHA[randTnum];
-    }
-    return code;
-}
-
-var xoauth2gen = generator.createXOAuth2Generator({
-    user: credentials.gmail.user,
-    clientId: credentials.gmail_api.clientId,
-    clientSecret: credentials.gmail_api.clientSecret,
-    refreshToken: credentials.gmail_api.refreshToken,
-    accessToken: credentials.gmail_api.accessToken
-});
-
-var smtpTransport = nodemailer.createTransport({
-    service: 'gmail',
-    secureConnection: true,
-    port: 465,
-    transportMethod: "SMTP",
-    auth: {
-        xoauth2: xoauth2gen
-    }
-});
-
-router.get('/send-mail', function (req, res, next) {
-    var phone = req.query.myPhone;
-    var select_sql = 'select email from users where myPhone=?';
-    var update_sql = 'update users set pw=? where myPhone=?';
-    connection.query(select_sql, phone, function (error, user) {
-        if(error) {
-            res.status(500).json({result: false});
-        } else {
-            if(!user[0]) {
-                res.status(200).json({result: false});
-            } else if(user[0]) {
-                var new_pw = randomUserCode();
-                var params = [new_pw, phone];
-                connection.query(update_sql, params, function (err, result) {
-                    if(err) {
-                        res.status(500).json({result: false});
-                    } else {
-                        var mailOptions = {
-                            from: ' <@gmail.com>',
-                            to: user[0].email,
-                            subject: '<집으로> 비밀번호 변경',
-                            text: '변경된 비밀번호는 \"'+new_pw+'\"입니다.\n본인이 아닌 경우 메일을 회신해주세요.'
-                        };
-                        smtpTransport.sendMail(mailOptions, function (e, response) {
-                            if(e) {
-                                res.status(200).json({result: false});
-                            } else {
-                                res.status(200).json({result: true});
-                            }
-                            smtpTransport.close();
-                        });
-                    }
-                });
-            }
-        }
-    });
-});
-
-router.post('/register', function (req, res, next) {
+//회원가입
+router.post('/up', function (req, res, next) {
     var select_sql = 'select myPhone from users where myPhone=?';
     var insert_sql = 'insert into users(myPhone, pw, email, name, age, gender, user_code) values(?, ?, ?, ?, ?, ?, ?)';
     var insert_location_sql = 'insert into location(phone) values(?)';
     var insert_gcm_token_sql = 'insert into gcm_tb(phone) values(?)';
-    var userCode = randomUserCode();
+    var userCode = credentials.randomUserCode;
     var params = [req.body.myPhone, req.body.pw, req.body.email, req.body.name, req.body.age, req.body.gender, userCode];
 
     connection.query(select_sql, req.body.myPhone, function (err, duplication) {
@@ -127,8 +65,9 @@ router.post('/register', function (req, res, next) {
     });
 });
 
-var secretKey = '';
-router.post('/login', function (req, res, next) {
+//로그인
+var secretKey = credentials.secretKey.code;
+router.post('/in', function (req, res, next) {
     var select_sql = 'select myPhone,pw from users where myPhone=? and pw=?';
     var params = [req.body.myPhone, req.body.pw];
 
@@ -153,69 +92,20 @@ router.post('/login', function (req, res, next) {
                         algorithm: 'HS256'  //HMAC using SHA-256 hash algorithm
                     });
                 res.status(200).json({result: true, token: token, message: 'login success'});
-                // console.log('token : '+token);
             }
         }
     });
 });
 
-router.post('/gcm-token', function (req ,res, next) {
-    var update_sql = 'update gcm_tb set gcm_token=? where phone=?';
-    var update_params = [req.body.gcm_token, req.body.phone];
+/**
+ * 로그인 토큰 인증 미들웨어
+ */
+router.use(auth.login_auth);
 
-    connection.query(update_sql, update_params, function (error, data) {
-        if(error) {
-            res.status(200).json({result: false});
-        } else {
-            res.status(200).json({result: true});
-        }
-    });
-});
-
-router.post('/gcm-receive', function (req, res, next) {
-    var family_select_sql = 'select guardian_phone1, guardian_phone2, guardian_phone3 from users where myPhone=?';
-    var gcm_token_select_sql = 'select phone, gcm_token from gcm_tb where (phone=? or phone=? or phone=?)';
-
-    connection.query(family_select_sql, req.body.myPhone, function (error, phoneList) {
-        if(error) {
-            res.status(500).json({result: false, gcm_token: null});
-        } else {
-            var params = [phoneList[0].guardian_phone1, phoneList[0].guardian_phone2, phoneList[0].guardian_phone3];
-            connection.query(gcm_token_select_sql, params, function (err, gcm_token) {
-                if(err) {
-                    res.status(500).json({result: false, gcm_token: null});
-                } else {
-                    res.status(200).json({
-                        result: true,
-                        gcm_token: [
-                            gcm_token[0],
-                            gcm_token[1],
-                            gcm_token[2]
-                        ]
-                    });
-                }
-            });
-        }
-    });
-});
-
-router.use(function (req, res, next) {
-    var token = req.body.token;
-    console.log(token);
-    if (token) {
-        jwt.verify(token, secretKey, function (error, decoded) {
-            if (error) {
-                return res.status(403).json({result: false, token: null, message: 'token auth failed', myProfile: null});
-            } else {
-                next();
-            }
-        });
-    } else {
-        return res.status(403).json({result: false, token: null, message: 'token not found', myProfile: null});
-    }
-});
-
-router.post('/check-user-code', function (req, res, next) {
+/**
+ * user_code를 확인
+ */
+router.post('/user-code', function (req, res, next) {
     var select_sql = 'select myPhone from users where myPhone=? AND user_code=?';
     var params = [req.body.myPhone, req.body.user_code];
     connection.query(select_sql, params, function (error, user) {
@@ -232,6 +122,7 @@ router.post('/check-user-code', function (req, res, next) {
     });
 });
 
+//프로필 정보 가져오기
 router.post('/profile', function (req, res, next) {
     var select_user_sql = 'select myPhone, email, name, age, gender, guardian_phone1, guardian_phone2, guardian_phone3, user_code from users where myPhone=?';
     connection.query(select_user_sql, req.body.myPhone, function (error, profile) {
@@ -257,7 +148,10 @@ router.post('/profile', function (req, res, next) {
     });
 });
 
-router.post('/ward-list', function (req, res, next) {
+/**
+ * 피보호자 리스트 요청
+ */
+router.post('/ward', function (req, res, next) {
     var select_user_sql = 'select phone from ward_users where myPhone=?';
 
     connection.query(select_user_sql, [req.body.myPhone], function (error, users) {
@@ -276,6 +170,7 @@ router.post('/ward-list', function (req, res, next) {
     });
 });
 
+//프로필 업데이트 - 비밀번호 변경, 기타 정보 변경, 피보호자 추가, 보호자 변경
 router.post('/profile-update', function (req, res, next) {
     if(req.body.now_pw != null && req.body.new_pw != null) {
         var select_sql = 'select myPhone from users where myPhone=? AND pw=?';
@@ -350,6 +245,7 @@ router.post('/profile-update', function (req, res, next) {
     }
 });
 
+//피보호자 삭제
 router.post('/ward-delete', function (req, res, next) {
     var delete_sql = 'delete from ward_users where myPhone=? AND phone=?';
     var params = [req.body.myPhone, req.body.phone];
@@ -362,66 +258,7 @@ router.post('/ward-delete', function (req, res, next) {
     });
 });
 
-router.post('/location', function (req, res, next) {
-    var update_sql = 'update location set nowLat=?, nowLng=? where phone=?';
-    var params = [req.body.nowLat, req.body.nowLng, req.body.phone];
-    connection.query(update_sql, params, function (error, location) {
-        if(error) {
-            res.status(403).json({result: false, message: 'location update fail'});
-        } else {
-            res.status(200).json({result: true, message: 'location update success'});
-        }
-    });
-});
-
-router.post('/receive', function(req, res, next) {
-    var family_select_sql = 'select phone from ward_users where myPhone=?';
-    var list = '';
-
-    connection.query(family_select_sql, [req.body.myPhone], function (error, phoneList) {
-       if(error) {
-           res.status(500).json({result: false, message: 'server connect fail(phone list receive fail)', locations: null});
-       } else {
-           var len = phoneList.length;
-           var params = [];
-           for(var i=0; i<len; i++) {
-               params.push(phoneList[i].phone);
-           }
-           if(len == 1) {
-               list = '(A.phone=?)';
-           } else if(len == 2) {
-               list = '(A.phone=? or A.phone=?)';
-           } else if(len == 3) {
-               list = '(A.phone=? or A.phone=? or A.phone=?)';
-           }
-           var select_sql = 'select B.name, A.nowLat, A.nowLng, A.mod_date from location A, users B where '+list+' AND A.phone=B.myPhone';
-           connection.query(select_sql, params, function (error, locations) {
-               if (error) {
-                   res.status(500).json({
-                       result: false, message: 'server connect fail(locations)', locations: null
-                   });
-               } else {
-                   if (!locations[0] && !locations[1] && !locations[2]) {
-                       res.status(200).json({
-                           result: false, message: 'location list receive fail', locations: null
-                       });
-                   } else if (locations[0] || locations[1] || locations[2]) {
-                       res.status(200).json({
-                           result: true,
-                           message: 'location receive success',
-                           locations: [
-                               locations[0],
-                               locations[1],
-                               locations[2]
-                           ]
-                       });
-                   }
-               }
-           });
-       }
-    });
-});
-
+//회원탈퇴
 router.post('/withdraw', function (req, res, next) {
     var pw_check_sql = 'select myPhone from users where myPhone=? AND pw=?';
     var pw_check_params = [req.body.myPhone, req.body.pw];
